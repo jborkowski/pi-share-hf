@@ -33,11 +33,13 @@ export async function runInit(options: InitOptions): Promise<void> {
     repo: options.repo,
     noImages: options.noImages,
     agents: options.agents.length > 0 ? options.agents : undefined,
+    allSessions: options.allSessions || undefined,
   });
   console.log(`${bold("Initialized workspace:")} ${options.workspace}`);
   console.log(`${bold("CWD:")} ${options.cwd}`);
   console.log(`${bold("Repo:")} ${options.repo}`);
   console.log(`${bold("Agents:")} ${options.agents.length > 0 ? options.agents.join(", ") : "all"}`);
+  console.log(`${bold("All sessions:")} ${options.allSessions ? "yes" : "no (cwd filter)"}`);
   console.log(`${bold("Images:")} ${options.noImages ? "stripped" : "preserved"}`);
 }
 
@@ -47,12 +49,14 @@ export async function runCollect(options: CollectOptions): Promise<void> {
 
   const config = readWorkspaceConfig(options.workspace);
   const agents = options.agents.length > 0 ? options.agents : config.agents;
+  const allSessions = options.allSessions || !!config.allSessions;
 
   const remoteManifestCachePath = workspacePath(options.workspace, REMOTE_MANIFEST_CACHE_FILE);
   const remoteManifest = await downloadRemoteManifest(config.repo, remoteManifestCachePath);
   const discoveredSessions = discoverOpenClawSessions(config.cwd, {
     agents,
     session: options.session,
+    allSessions,
   });
   const redactor = new Redactor(options.envFile, options.secrets, !!config.noImages);
   const secretsHash = computeSecretHash(options.envFile, options.secrets);

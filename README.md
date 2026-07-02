@@ -26,7 +26,7 @@ It keeps state in a workspace, so repeated runs only process what changed (updat
 - session format: https://docs.openclaw.ai/reference/session-management-compaction
 - trajectory format: https://docs.openclaw.ai/tools/trajectory
 
-Sessions are filtered by the `cwd` field in transcript headers (or matching `workspaceDir` in trajectory files).
+Sessions are filtered by the `cwd` field in transcript headers (or matching `workspaceDir` in trajectory files), unless you pass `--all-sessions`.
 
 ## Install
 
@@ -94,7 +94,7 @@ openclaw-share-hf init --repo myuser/my-project-sessions
 openclaw-share-hf init --repo my-project-sessions --organization myorg
 
 # limit to one agent
-openclaw-share-hf init --repo myuser/my-project-sessions --agent main
+openclaw-share-hf init --repo myuser/my-project-sessions --all-sessions --workspace ~/.openclaw/hf-sessions
 ```
 
 Collect sessions:
@@ -120,6 +120,7 @@ You can also repeat flags directly:
 - `--secret <file>` or `--secret <literal>`
 - `--deny <file>` or `--deny <regex>`
 - `--agent <id>` to limit discovery to specific OpenClaw agents
+- `--all-sessions` to collect every session under `~/.openclaw/agents/*/sessions/` (no cwd filter)
 
 If you do not want a secrets file on disk, pass repeated `--secret <literal>` values instead.
 
@@ -268,6 +269,7 @@ Main options:
 - `--organization <name>` optional namespace when `--repo` is a bare name
 - `--workspace <dir>` workspace dir, default `.openclaw/hf-sessions`
 - `--agent <id>` limit session discovery to specific OpenClaw agents (repeatable)
+- `--all-sessions` collect all sessions regardless of project cwd
 - `--no-images` strip embedded images from redacted output
 
 ### `collect`
@@ -298,6 +300,7 @@ Main options:
 - `--parallel <n>` concurrent LLM reviews
 - `--deny <file>|<regex>` reject sessions matching this pattern
 - `--agent <id>` limit discovery to specific OpenClaw agents (repeatable)
+- `--all-sessions` collect all sessions regardless of project cwd
 - `--session <file>` process one session only
 
 ### `review`

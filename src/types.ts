@@ -12,6 +12,7 @@ export interface WorkspaceConfig {
   repo: string;
   noImages?: boolean;
   agents?: string[];
+  allSessions?: boolean;
 }
 
 export interface InitOptions {
@@ -20,6 +21,7 @@ export interface InitOptions {
   workspace: string;
   noImages: boolean;
   agents: string[];
+  allSessions: boolean;
 }
 
 export interface CollectOptions {
@@ -35,6 +37,7 @@ export interface CollectOptions {
   denyPatterns: RegExp[];
   session?: string;
   agents: string[];
+  allSessions: boolean;
 }
 
 export interface ReviewOptions {

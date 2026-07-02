@@ -50,6 +50,7 @@ export function isWorkspaceConfig(value: unknown): value is WorkspaceConfig {
   if (typeof value.cwd !== "string" || typeof value.repo !== "string") return false;
   if (value.agents !== undefined && !Array.isArray(value.agents)) return false;
   if (Array.isArray(value.agents) && value.agents.some((agent) => typeof agent !== "string")) return false;
+  if (value.allSessions !== undefined && typeof value.allSessions !== "boolean") return false;
   return true;
 }
 

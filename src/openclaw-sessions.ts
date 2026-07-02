@@ -14,6 +14,7 @@ export interface DiscoveredSession {
 export interface DiscoverOpenClawSessionsOptions {
   agents?: string[];
   session?: string;
+  allSessions?: boolean;
 }
 
 const OPENCLAW_AGENTS_BASE = path.join(os.homedir(), ".openclaw", "agents");
@@ -51,6 +52,7 @@ export function discoverOpenClawSessions(cwd: string, options?: DiscoverOpenClaw
     throw new Error(`OpenClaw agents directory not found: ${OPENCLAW_AGENTS_BASE}`);
   }
 
+  const allSessions = !!options?.allSessions;
   const targetCwd = normalizeCwd(cwd);
   const agentFilter = options?.agents && options.agents.length > 0 ? new Set(options.agents) : undefined;
   const sessionFilter = options?.session;
@@ -77,9 +79,9 @@ export function discoverOpenClawSessions(cwd: string, options?: DiscoverOpenClaw
 
       const sourcePath = path.join(sessionsDir, fileName);
       const sessionCwd = readTranscriptCwd(sourcePath);
-      if (!sessionCwd || !cwdMatches(sessionCwd, targetCwd)) continue;
+      if (!allSessions && (!sessionCwd || !cwdMatches(sessionCwd, targetCwd))) continue;
 
-      transcriptCwds.set(sourcePath, sessionCwd);
+      if (sessionCwd) transcriptCwds.set(sourcePath, sessionCwd);
       discovered.push({
         agentId,
         kind: "transcript",
@@ -95,7 +97,7 @@ export function discoverOpenClawSessions(cwd: string, options?: DiscoverOpenClaw
       const sourcePath = path.join(sessionsDir, fileName);
       if (seenTrajectoryPaths.has(sourcePath)) continue;
 
-      if (!trajectoryMatchesCwd(sourcePath, sessionsDir, fileName, transcriptCwds, targetCwd)) continue;
+      if (!allSessions && !trajectoryMatchesCwd(sourcePath, sessionsDir, fileName, transcriptCwds, targetCwd)) continue;
 
       seenTrajectoryPaths.add(sourcePath);
       discovered.push({
@@ -117,7 +119,7 @@ export function discoverOpenClawSessions(cwd: string, options?: DiscoverOpenClaw
       if (!trajectoryPath || !fs.existsSync(trajectoryPath) || seenTrajectoryPaths.has(trajectoryPath)) continue;
 
       const trajectoryFileName = path.basename(trajectoryPath);
-      if (!trajectoryMatchesCwd(trajectoryPath, sessionsDir, trajectoryFileName, transcriptCwds, targetCwd)) continue;
+      if (!allSessions && !trajectoryMatchesCwd(trajectoryPath, sessionsDir, trajectoryFileName, transcriptCwds, targetCwd)) continue;
 
       seenTrajectoryPaths.add(trajectoryPath);
       discovered.push({
@@ -131,6 +133,9 @@ export function discoverOpenClawSessions(cwd: string, options?: DiscoverOpenClaw
 
   if (discovered.length === 0) {
     const agentHint = agentFilter ? ` (agents: ${[...agentFilter].join(", ")})` : "";
+    if (allSessions) {
+      throw new Error(`No OpenClaw sessions found under ${OPENCLAW_AGENTS_BASE}${agentHint}`);
+    }
     throw new Error(`No OpenClaw sessions found for cwd: ${targetCwd}${agentHint}`);
   }
 
