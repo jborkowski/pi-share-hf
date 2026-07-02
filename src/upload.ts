@@ -6,7 +6,7 @@ import type { ChunkReviewResult, UploadOptions } from "./types.ts";
 import { REJECT_FILE, REMOTE_MANIFEST_CACHE_FILE, REMOTE_MANIFEST_FILE } from "./types.ts";
 import { runCommand } from "./process.ts";
 import { loadReviewFile } from "./review-state.ts";
-import { downloadRemoteManifest, loadLocalManifest, readWorkspaceConfig, workspacePath } from "./workspace.ts";
+import { downloadRemoteManifest, ensureParentDir, loadLocalManifest, readWorkspaceConfig, workspacePath } from "./workspace.ts";
 
 function loadRejectSet(workspace: string): Set<string> {
   const file = workspacePath(workspace, REJECT_FILE);
@@ -106,7 +106,9 @@ export async function runUpload(options: UploadOptions): Promise<void> {
     const localFile = workspacePath(options.workspace, "redacted", entry.file);
     if (!fs.existsSync(localFile)) continue;
 
-    fs.copyFileSync(localFile, path.join(uploadDir, entry.file));
+    const stagedFile = path.join(uploadDir, entry.file);
+    ensureParentDir(stagedFile);
+    fs.copyFileSync(localFile, stagedFile);
     updatedManifest.set(entry.file, {
       file: entry.file,
       source_hash: entry.source_hash,
@@ -152,7 +154,7 @@ async function generateDatasetCard(
     "tags:",
     "- agent-traces",
     "- coding-agent",
-    "- pi-share-hf",
+    "- openclaw-share-hf",
     "language:",
     "- en",
     "- code",
@@ -162,22 +164,23 @@ async function generateDatasetCard(
     `# Coding agent session traces for ${repo}`,
     "",
     sourceRepo
-      ? `This dataset contains redacted coding agent session traces collected while working on ${sourceRepo}. The traces were exported with [pi-share-hf](https://github.com/badlogic/pi-share-hf) from a local [pi](https://pi.dev) workspace and filtered to keep only sessions that passed deterministic redaction and LLM review.`
-      : `This dataset contains redacted coding agent session traces exported with [pi-share-hf](https://github.com/badlogic/pi-share-hf) from a local [pi](https://pi.dev) workspace. The traces were filtered to keep only sessions that passed deterministic redaction and LLM review.`,
+      ? `This dataset contains redacted OpenClaw agent session traces collected while working on ${sourceRepo}. The traces were exported with [openclaw-share-hf](https://www.npmjs.com/package/openclaw-share-hf) from local OpenClaw sessions and filtered to keep only sessions that passed deterministic redaction and LLM review.`
+      : `This dataset contains redacted OpenClaw agent session traces exported with [openclaw-share-hf](https://www.npmjs.com/package/openclaw-share-hf) from local OpenClaw sessions. The traces were filtered to keep only sessions that passed deterministic redaction and LLM review.`,
     "",
     "## Data description",
     "",
-    "Each `*.jsonl` file is a redacted pi session. Sessions are stored as JSON Lines files where each line is a structured session entry. Entries include session headers, user and assistant messages, tool results, model changes, thinking level changes, compaction summaries, branch summaries, and custom extension data.",
+    "Each `*.jsonl` file is a redacted OpenClaw transcript session. Each `*.trajectory.jsonl` file is a redacted OpenClaw trajectory sidecar. Sessions are stored as JSON Lines files where each line is a structured entry. Transcript entries include session headers, user and assistant messages, tool results, compaction summaries, branch summaries, and custom extension data. Trajectory entries follow the `openclaw-trajectory` schema and capture runtime timeline events.",
     "",
-    "Pi session files are tree-structured via `id` and `parentId`, so a single session file may contain multiple branches of work. See the upstream session format documentation for the exact schema:",
+    "OpenClaw transcript files are tree-structured via `id` and `parentId`, so a single session file may contain multiple branches of work. See the upstream documentation for the exact schemas:",
     "",
-    "- https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/session.md",
+    "- https://docs.openclaw.ai/reference/session-management-compaction",
+    "- https://docs.openclaw.ai/tools/trajectory",
     "",
     sourceRepo ? `Source git repo: ${sourceRepo}` : "Source git repo: (not detected)",
     "",
     "## Redaction and review",
     "",
-    "The data was processed with [pi-share-hf](https://github.com/badlogic/pi-share-hf) using deterministic secret redaction plus an LLM review step. Deterministic redaction targets exact known secrets and curated credential patterns. The LLM review decides whether a session is about the OSS project, whether it is fit to share publicly, and whether any sensitive content appears to have been missed.",
+    "The data was processed with [openclaw-share-hf](https://www.npmjs.com/package/openclaw-share-hf) using deterministic secret redaction plus an LLM review step. Deterministic redaction targets exact known secrets and curated credential patterns. The LLM review decides whether a session is about the OSS project, whether it is fit to share publicly, and whether any sensitive content appears to have been missed.",
     "",
     "Embedded images may be preserved in the uploaded sessions unless the workspace was initialized with `--no-images`.",
     "",
@@ -209,5 +212,5 @@ function isUploadApproved(result: ChunkReviewResult): boolean {
 }
 
 async function uploadFolder(repo: string, localDir: string): Promise<void> {
-  await uploadDatasetFolder(repo, localDir, `pi-share-hf upload ${new Date().toISOString()}`);
+  await uploadDatasetFolder(repo, localDir, `openclaw-share-hf upload ${new Date().toISOString()}`);
 }

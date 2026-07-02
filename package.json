@@ -1,6 +1,6 @@
 {
-  "name": "pi-share-hf",
-  "version": "0.5.0",
+  "name": "openclaw-share-hf",
+  "version": "1.0.0",
   "type": "module",
   "bin": "dist/index.js",
   "files": [

@@ -17,7 +17,7 @@ import { runCommand } from "./process.ts";
 import { extractImagesFromSession, splitIntoReviewChunks } from "./review-serialize.ts";
 import { computeDenyHash, computeReviewKey, hashContextFiles, loadReviewFile } from "./review-state.ts";
 import { blockingTruffleHogReason, loadTruffleHogReport, trufflehogReportPath } from "./trufflehog.ts";
-import { isRecord, readWorkspaceConfig, resetReviewDir, sha256File, workspacePath } from "./workspace.ts";
+import { isRecord, listManifestSessionFiles, readWorkspaceConfig, resetReviewDir, sha256File, workspacePath, ensureParentDir } from "./workspace.ts";
 
 export async function runReview(options: ReviewOptions): Promise<void> {
   const config = readWorkspaceConfig(options.workspace);
@@ -33,17 +33,18 @@ export async function runReview(options: ReviewOptions): Promise<void> {
 
   const contextHashes = await hashContextFiles(contextFiles);
   const denyHash = computeDenyHash(options.denyPatterns);
-  const redactedDir = workspacePath(options.workspace, "redacted");
-  let sessionFiles = fs.readdirSync(redactedDir).filter((file) => file.endsWith(".jsonl")).sort();
-  if (options.session) {
-    sessionFiles = sessionFiles.filter((file) => file.includes(options.session!));
-    if (sessionFiles.length === 0) {
-      console.log(`No session matching '${options.session}' found in workspace/redacted`);
-      return;
-    }
+  const agents = options.agents.length > 0 ? options.agents : config.agents;
+  let sessionFiles = listManifestSessionFiles(options.workspace, options.session);
+  if (agents && agents.length > 0) {
+    const prefixes = agents.map((agent) => `${agent}/`);
+    sessionFiles = sessionFiles.filter((file) => prefixes.some((prefix) => file.startsWith(prefix)));
+  }
+  if (options.session && sessionFiles.length === 0) {
+    console.log(`No session matching '${options.session}' found in workspace manifest`);
+    return;
   }
   if (sessionFiles.length === 0) {
-    console.log("No redacted session files found in workspace/redacted");
+    console.log("No redacted session files found in workspace manifest");
     return;
   }
 
@@ -83,7 +84,7 @@ export async function runReview(options: ReviewOptions): Promise<void> {
         deterministicBlock.evidence,
         deterministicBlock.missedSensitiveData,
       );
-      fs.writeFileSync(reviewPath, `${JSON.stringify(denyReview, null, 2)}\n`);
+      writeReviewFile(reviewPath, denyReview);
       deniedBySecrets++;
       continue;
     }
@@ -107,7 +108,7 @@ export async function runReview(options: ReviewOptions): Promise<void> {
         trufflehogBlock.evidence,
         trufflehogBlock.missedSensitiveData,
       );
-      fs.writeFileSync(reviewPath, `${JSON.stringify(denyReview, null, 2)}\n`);
+      writeReviewFile(reviewPath, denyReview);
       deniedBySecrets++;
       continue;
     }
@@ -120,7 +121,7 @@ export async function runReview(options: ReviewOptions): Promise<void> {
           options.provider, options.model, "deny-pattern", matchedPattern.source,
           "no",
         );
-        fs.writeFileSync(reviewPath, `${JSON.stringify(denyReview, null, 2)}\n`);
+        writeReviewFile(reviewPath, denyReview);
         deniedByPattern++;
         continue;
       }
@@ -242,7 +243,7 @@ export async function runReview(options: ReviewOptions): Promise<void> {
         printProgress();
         processWorkItem(item)
           .then((result) => {
-            fs.writeFileSync(item.reviewPath, `${JSON.stringify(result, null, 2)}\n`);
+            writeReviewFile(item.reviewPath, result);
             reviewed++;
             if (result.aggregate.shareable === "yes" && result.aggregate.missed_sensitive_data === "no" && result.aggregate.about_project !== "no") {
               accepted++;
@@ -284,7 +285,7 @@ export async function runReview(options: ReviewOptions): Promise<void> {
       console.log();
       console.log(bold("Manual follow-up"));
       console.log(`  ${bold("Extracted images:")} ${cyan(String(imageCount))} -> ${imagesDir}`);
-      console.log(`  ${bold("Reject by image:")} pi-share-hf reject <image-path>`);
+      console.log(`  ${bold("Reject by image:")} openclaw-share-hf reject <image-path>`);
       console.log(dim("  Rejecting an image rejects the entire session that contains it."));
     }
   }
@@ -294,7 +295,7 @@ export async function runReview(options: ReviewOptions): Promise<void> {
   console.log();
   console.log(bold("Next step"));
   if (summary.uploadable > 0) {
-    console.log(`  ${green("Run:")} pi-share-hf upload`);
+    console.log(`  ${green("Run:")} openclaw-share-hf upload`);
   } else {
     console.log(`  ${yellow("No uploadable sessions.")}`);
   }
@@ -522,13 +523,13 @@ async function reviewChunkWithPi(
 
 function createReviewPrompt(chunkIndex: number, chunkCount: number, hasImages: boolean): string {
   return [
-    "Review a redacted pi session chunk for public OSS dataset sharing.",
+    "Review a redacted OpenClaw session chunk for public OSS dataset sharing.",
     "",
     hasImages
       ? "The attached files include project context files, the session chunk, and images extracted from the session. Review the images for sensitive content (screenshots of private data, credentials, personal information, non-project content)."
       : "The attached files include project context files followed by the session chunk as the last file.",
     "Judge whether the session chunk is about the OSS project, whether it is fit to share publicly on Hugging Face, and whether there appears to be missed sensitive data after deterministic redaction.",
-    "The session chunk is a serialized plain-text transcript derived from a redacted session file. It may contain user messages, assistant text, thinking blocks, tool calls, tool results, bash output, custom entries, branch summaries, compaction summaries, preserved image markers, and verbatim JSON for details/custom data.",
+    "The session chunk is a serialized plain-text transcript derived from a redacted OpenClaw session file. It may contain user messages, assistant text, thinking blocks, tool calls, tool results, bash output, custom entries, branch summaries, compaction summaries, trajectory runtime events, preserved image markers, and verbatim JSON for details/custom data.",
     "",
     `This is chunk ${chunkIndex} of ${chunkCount}.`,
     "",
@@ -693,6 +694,11 @@ function getDeterministicBlockReason(reportPath: string): { reason: string; evid
   }
 
   return undefined;
+}
+
+function writeReviewFile(reviewPath: string, value: unknown): void {
+  ensureParentDir(reviewPath);
+  fs.writeFileSync(reviewPath, `${JSON.stringify(value, null, 2)}\n`);
 }
 
 function createDenyReview(

@@ -3,18 +3,20 @@ import path from "node:path";
 import type { CollectOptions, GrepOptions, InitOptions, ListOptions, RejectOptions, ReviewOptions, UploadOptions } from "./types.ts";
 import { loadDenyPatterns } from "./review.ts";
 
+const DEFAULT_WORKSPACE = ".openclaw/hf-sessions";
+
 export function printUsage(): void {
   console.log(`
-pi-share-hf
+openclaw-share-hf
 
 Usage:
-  pi-share-hf init --cwd <dir> --repo <hf-dataset-repo> --workspace <dir> [options]
-  pi-share-hf collect [--workspace <dir>] [options] [context-file...]
-  pi-share-hf review [--workspace <dir>] [options] [context-file...]
-  pi-share-hf upload [--workspace <dir>]
-  pi-share-hf reject [--workspace <dir>] <image-or-session>
-  pi-share-hf list [--workspace <dir>] --uploadable
-  pi-share-hf grep [--workspace <dir>] [--ignore-case] <pattern>
+  openclaw-share-hf init --cwd <dir> --repo <hf-dataset-repo> --workspace <dir> [options]
+  openclaw-share-hf collect [--workspace <dir>] [options] [context-file...]
+  openclaw-share-hf review [--workspace <dir>] [options] [context-file...]
+  openclaw-share-hf upload [--workspace <dir>]
+  openclaw-share-hf reject [--workspace <dir>] <image-or-session>
+  openclaw-share-hf list [--workspace <dir>] --uploadable
+  openclaw-share-hf grep [--workspace <dir>] [--ignore-case] <pattern>
 
 Commands:
   init      Create a workspace and store cwd/repo configuration
@@ -26,14 +28,15 @@ Commands:
   grep      Ripgrep only the uploadable session set
 
 Init options:
-  --cwd <dir>            Working directory whose pi sessions should be collected (default: .)
+  --cwd <dir>            Working directory whose OpenClaw sessions should be collected (default: .)
   --repo <repo>          Hugging Face dataset repo name or repo id
   --organization <name>  Optional HF organization or user namespace
-  --workspace <dir>      Workspace directory (default: .pi/hf-sessions)
+  --workspace <dir>      Workspace directory (default: .openclaw/hf-sessions)
+  --agent <id>           Limit collection to a specific OpenClaw agent (repeatable)
   --no-images            Strip embedded images from redacted output
 
 Collect options:
-  --workspace <dir>      Existing workspace (default: .pi/hf-sessions)
+  --workspace <dir>      Existing workspace (default: .openclaw/hf-sessions)
   --env-file <path>      Secret source file (default: ~/.zshrc)
   --secret <file>|<text> Additional literal secret or line-based secret file (repeatable)
   --force                Reprocess all sessions even if source_hash matches remote manifest
@@ -42,33 +45,35 @@ Collect options:
   --thinking <level>     Thinking level override (off, minimal, low, medium, high, xhigh)
   --parallel <n>         Number of parallel LLM reviews (default: 1)
   --deny <file>|<regex>  Deny pattern: file with one regex per line, or a regex string (repeatable)
+  --agent <id>           Limit collection to a specific OpenClaw agent (repeatable)
   --session <file>       Process a single session file (for testing)
   [context-file...]      Project context files for the LLM review (default: README.md, AGENTS.md if present)
 
 Review options:
-  --workspace <dir>      Existing workspace (default: .pi/hf-sessions)
+  --workspace <dir>      Existing workspace (default: .openclaw/hf-sessions)
   --provider <name>      pi provider override for review
   --model <id>           pi model override for review
   --thinking <level>     Thinking level override (off, minimal, low, medium, high, xhigh)
   --parallel <n>         Number of parallel LLM reviews (default: 1)
   --deny <file>|<regex>  Deny pattern: file with one regex per line, or a regex string (repeatable)
+  --agent <id>           Limit review to sessions from a specific OpenClaw agent (repeatable)
   --session <file>       Review a single session file (for testing)
   [context-file...]      Project context files for the LLM review (default: README.md, AGENTS.md if present)
 
 Upload options:
-  --workspace <dir>      Existing workspace (default: .pi/hf-sessions)
+  --workspace <dir>      Existing workspace (default: .openclaw/hf-sessions)
   --dry-run              Show upload stats without uploading
 
 Reject options:
-  --workspace <dir>      Existing workspace (default: .pi/hf-sessions)
+  --workspace <dir>      Existing workspace (default: .openclaw/hf-sessions)
   <image-or-session>     Extracted image filename or session filename to reject
 
 List options:
-  --workspace <dir>      Existing workspace (default: .pi/hf-sessions)
+  --workspace <dir>      Existing workspace (default: .openclaw/hf-sessions)
   --uploadable           List only sessions that would be uploaded
 
 Grep options:
-  --workspace <dir>      Existing workspace (default: .pi/hf-sessions)
+  --workspace <dir>      Existing workspace (default: .openclaw/hf-sessions)
   --ignore-case, -i      Case-insensitive search
   <pattern>              Ripgrep pattern to run against uploadable sessions
 `);
@@ -78,8 +83,9 @@ export function parseInitArgs(args: string[]): InitOptions {
   let cwd = path.resolve(".");
   let repo = "";
   let organization: string | undefined;
-  let workspace = path.resolve(".pi/hf-sessions");
+  let workspace = path.resolve(DEFAULT_WORKSPACE);
   let noImages = false;
+  const agents: string[] = [];
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -87,6 +93,7 @@ export function parseInitArgs(args: string[]): InitOptions {
     else if (arg === "--repo") repo = requireValue(args, ++i, "--repo");
     else if (arg === "--organization") organization = requireValue(args, ++i, "--organization");
     else if (arg === "--workspace") workspace = path.resolve(requireValue(args, ++i, "--workspace"));
+    else if (arg === "--agent") agents.push(requireValue(args, ++i, "--agent"));
     else if (arg === "--no-images") noImages = true;
     else throw new Error(`Unknown init option: ${arg}`);
   }
@@ -100,11 +107,11 @@ export function parseInitArgs(args: string[]): InitOptions {
   }
 
   const repoId = organization ? `${organization}/${repo}` : repo;
-  return { cwd, repo: repoId, workspace, noImages };
+  return { cwd, repo: repoId, workspace, noImages, agents };
 }
 
 export function parseCollectArgs(args: string[]): CollectOptions {
-  let workspace = path.resolve(".pi/hf-sessions");
+  let workspace = path.resolve(DEFAULT_WORKSPACE);
   let envFile = path.join(os.homedir(), ".zshrc");
   const secrets: string[] = [];
   let force = false;
@@ -115,6 +122,7 @@ export function parseCollectArgs(args: string[]): CollectOptions {
   let session: string | undefined;
   const denyInputs: string[] = [];
   const contextFiles: string[] = [];
+  const agents: string[] = [];
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -127,6 +135,7 @@ export function parseCollectArgs(args: string[]): CollectOptions {
     else if (arg === "--thinking") thinking = requireValue(args, ++i, "--thinking");
     else if (arg === "--parallel") parallel = parseInt(requireValue(args, ++i, "--parallel"), 10);
     else if (arg === "--deny") denyInputs.push(requireValue(args, ++i, "--deny"));
+    else if (arg === "--agent") agents.push(requireValue(args, ++i, "--agent"));
     else if (arg === "--session") session = requireValue(args, ++i, "--session");
     else contextFiles.push(arg);
   }
@@ -136,11 +145,11 @@ export function parseCollectArgs(args: string[]): CollectOptions {
   }
   if (parallel < 1 || !Number.isFinite(parallel)) parallel = 1;
 
-  return { workspace, envFile, secrets, force, contextFiles, provider, model, thinking, parallel, denyPatterns: loadDenyPatterns(denyInputs), session };
+  return { workspace, envFile, secrets, force, contextFiles, provider, model, thinking, parallel, denyPatterns: loadDenyPatterns(denyInputs), session, agents };
 }
 
 export function parseReviewArgs(args: string[]): ReviewOptions {
-  let workspace = path.resolve(".pi/hf-sessions");
+  let workspace = path.resolve(DEFAULT_WORKSPACE);
   let provider: string | undefined;
   let model: string | undefined;
   let thinking: string | undefined;
@@ -148,6 +157,7 @@ export function parseReviewArgs(args: string[]): ReviewOptions {
   let session: string | undefined;
   const denyInputs: string[] = [];
   const contextFiles: string[] = [];
+  const agents: string[] = [];
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -157,6 +167,7 @@ export function parseReviewArgs(args: string[]): ReviewOptions {
     else if (arg === "--thinking") thinking = requireValue(args, ++i, "--thinking");
     else if (arg === "--parallel") parallel = parseInt(requireValue(args, ++i, "--parallel"), 10);
     else if (arg === "--deny") denyInputs.push(requireValue(args, ++i, "--deny"));
+    else if (arg === "--agent") agents.push(requireValue(args, ++i, "--agent"));
     else if (arg === "--session") session = requireValue(args, ++i, "--session");
     else contextFiles.push(arg);
   }
@@ -167,11 +178,11 @@ export function parseReviewArgs(args: string[]): ReviewOptions {
 
   if (parallel < 1 || !Number.isFinite(parallel)) parallel = 1;
 
-  return { workspace, contextFiles, provider, model, thinking, parallel, denyPatterns: loadDenyPatterns(denyInputs), session };
+  return { workspace, contextFiles, provider, model, thinking, parallel, denyPatterns: loadDenyPatterns(denyInputs), session, agents };
 }
 
 export function parseUploadArgs(args: string[]): UploadOptions {
-  let workspace = path.resolve(".pi/hf-sessions");
+  let workspace = path.resolve(DEFAULT_WORKSPACE);
   let dryRun = false;
 
   for (let i = 0; i < args.length; i++) {
@@ -189,7 +200,7 @@ export function parseUploadArgs(args: string[]): UploadOptions {
 }
 
 export function parseRejectArgs(args: string[]): RejectOptions {
-  let workspace = path.resolve(".pi/hf-sessions");
+  let workspace = path.resolve(DEFAULT_WORKSPACE);
   let target = "";
 
   for (let i = 0; i < args.length; i++) {
@@ -207,7 +218,7 @@ export function parseRejectArgs(args: string[]): RejectOptions {
 }
 
 export function parseListArgs(args: string[]): ListOptions {
-  let workspace = path.resolve(".pi/hf-sessions");
+  let workspace = path.resolve(DEFAULT_WORKSPACE);
   let uploadable = false;
 
   for (let i = 0; i < args.length; i++) {
@@ -221,7 +232,7 @@ export function parseListArgs(args: string[]): ListOptions {
 }
 
 export function parseGrepArgs(args: string[]): GrepOptions {
-  let workspace = path.resolve(".pi/hf-sessions");
+  let workspace = path.resolve(DEFAULT_WORKSPACE);
   let pattern = "";
   let ignoreCase = false;
 

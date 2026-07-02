@@ -7,8 +7,8 @@ import { downloadDatasetTextFile } from "./hf.ts";
 
 export { LOCAL_MANIFEST_FILE, REMOTE_MANIFEST_CACHE_FILE, REMOTE_MANIFEST_FILE, WORKSPACE_CONFIG_FILE };
 
-export function cwdToSessionDirName(cwd: string): string {
-  return `--${cwd.replace(/\//g, "-").slice(1)}--`;
+export function ensureParentDir(filePath: string): void {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
 }
 
 export function workspacePath(workspace: string, ...segments: string[]): string {
@@ -47,8 +47,19 @@ export function readWorkspaceConfig(workspace: string): WorkspaceConfig {
 
 export function isWorkspaceConfig(value: unknown): value is WorkspaceConfig {
   if (!isRecord(value)) return false;
-  return typeof value.cwd === "string"
-    && typeof value.repo === "string";
+  if (typeof value.cwd !== "string" || typeof value.repo !== "string") return false;
+  if (value.agents !== undefined && !Array.isArray(value.agents)) return false;
+  if (Array.isArray(value.agents) && value.agents.some((agent) => typeof agent !== "string")) return false;
+  return true;
+}
+
+export function listManifestSessionFiles(workspace: string, sessionFilter?: string): string[] {
+  const localManifest = loadLocalManifest(workspacePath(workspace, LOCAL_MANIFEST_FILE));
+  let files = [...localManifest.keys()].sort();
+  if (sessionFilter) {
+    files = files.filter((file) => file.includes(sessionFilter));
+  }
+  return files;
 }
 
 export function isRecord(value: unknown): value is Record<string, unknown> {

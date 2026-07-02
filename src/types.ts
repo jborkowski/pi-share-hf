@@ -11,6 +11,7 @@ export interface WorkspaceConfig {
   cwd: string;
   repo: string;
   noImages?: boolean;
+  agents?: string[];
 }
 
 export interface InitOptions {
@@ -18,6 +19,7 @@ export interface InitOptions {
   repo: string;
   workspace: string;
   noImages: boolean;
+  agents: string[];
 }
 
 export interface CollectOptions {
@@ -32,6 +34,7 @@ export interface CollectOptions {
   parallel: number;
   denyPatterns: RegExp[];
   session?: string;
+  agents: string[];
 }
 
 export interface ReviewOptions {
@@ -43,6 +46,7 @@ export interface ReviewOptions {
   parallel: number;
   denyPatterns: RegExp[];
   session?: string;
+  agents: string[];
 }
 
 export type TruffleHogFindingStatus = "verified" | "unverified" | "unknown";
@@ -165,7 +169,7 @@ export const CHARS_PER_REVIEW_TOKEN = 5;
 export const REVIEW_TOKEN_LIMIT = 100_000;
 export const REVIEW_CHUNK_CHAR_LIMIT = CHARS_PER_REVIEW_TOKEN * REVIEW_TOKEN_LIMIT;
 export const REVIEW_PROMPT_VERSION = 4;
-export const REDACTION_VERSION = 1;
+export const REDACTION_VERSION = 2;
 export const REMOTE_MANIFEST_FILE = "manifest.jsonl";
 export const WORKSPACE_CONFIG_FILE = "workspace.json";
 export const LOCAL_MANIFEST_FILE = "manifest.local.jsonl";

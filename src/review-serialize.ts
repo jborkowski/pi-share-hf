@@ -13,6 +13,7 @@ export async function splitIntoReviewChunks(sessionFile: string, chunkDir: strin
   const chunkFiles: string[] = [];
   let chunkIndex = 1;
   let current = "";
+  const isTrajectory = isTrajectorySessionFile(sessionFile);
 
   const input = fs.createReadStream(sessionFile, { encoding: "utf-8" });
   const reader = readline.createInterface({ input, crlfDelay: Infinity });
@@ -28,7 +29,9 @@ export async function splitIntoReviewChunks(sessionFile: string, chunkDir: strin
     }
     if (!isRecord(parsed)) continue;
 
-    const blocks = serializeEntryForReview(parsed as JsonObject);
+    const blocks = isTrajectory || isTrajectoryEvent(parsed as JsonObject)
+      ? serializeTrajectoryEventForReview(parsed as JsonObject)
+      : serializeEntryForReview(parsed as JsonObject);
     for (const block of blocks) {
       if (!block) continue;
       const next = `${block}\n\n`;
@@ -50,6 +53,33 @@ export async function splitIntoReviewChunks(sessionFile: string, chunkDir: strin
   }
 
   return chunkFiles;
+}
+
+function isTrajectorySessionFile(sessionFile: string): boolean {
+  return sessionFile.endsWith(".trajectory.jsonl");
+}
+
+function isTrajectoryEvent(entry: JsonObject): boolean {
+  return entry.traceSchema === "openclaw-trajectory";
+}
+
+export function serializeTrajectoryEventForReview(entry: JsonObject): string[] {
+  const parts: string[] = [];
+  const type = typeof entry.type === "string" ? entry.type : "event";
+  const ts = typeof entry.ts === "string" ? entry.ts : "";
+  const source = typeof entry.source === "string" ? entry.source : "";
+  const header = `[Trajectory:${type}]${ts ? ` ${ts}` : ""}${source ? ` (${source})` : ""}`;
+  parts.push(header);
+
+  if (typeof entry.workspaceDir === "string") parts.push(`[Workspace]: ${entry.workspaceDir}`);
+  if (typeof entry.sessionId === "string") parts.push(`[Session id]: ${entry.sessionId}`);
+  if (typeof entry.provider === "string") parts.push(`[Provider]: ${entry.provider}`);
+  if (typeof entry.modelId === "string") parts.push(`[Model]: ${entry.modelId}`);
+  if (entry.data !== undefined) {
+    parts.push(`[Data]: ${truncateForReview(stringifyJson(entry.data as JsonValue), REVIEW_JSON_VALUE_MAX_CHARS)}`);
+  }
+
+  return parts;
 }
 
 export function extractImagesFromSession(sessionPath: string, imagesDir: string, sessionFile: string): string[] {

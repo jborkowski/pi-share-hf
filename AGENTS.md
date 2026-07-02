@@ -1,6 +1,6 @@
 # Project
 
-This project is a small Node.js CLI for collecting, reviewing, and uploading redacted pi session files for a specific cwd.
+This project is a small Node.js CLI for collecting, reviewing, and uploading redacted OpenClaw session files for a specific cwd.
 
 # TypeScript
 

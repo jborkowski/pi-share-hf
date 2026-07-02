@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import readline from "node:readline";
 import { bold, cyan, dim, green, yellow } from "./colors.ts";
+import { discoverOpenClawSessions } from "./openclaw-sessions.ts";
 import { Redactor } from "./redactor.ts";
 import { runReview } from "./review.ts";
 import { computeSecretHash } from "./secrets.ts";
@@ -11,8 +11,8 @@ import { formatTruffleHogFinding, saveTruffleHogReport, scanFilesWithTruffleHog,
 import type { CollectOptions, InitOptions, JsonObject, ReviewOptions } from "./types.ts";
 import { LOCAL_MANIFEST_FILE, REDACTION_VERSION, REMOTE_MANIFEST_CACHE_FILE } from "./types.ts";
 import {
-  cwdToSessionDirName,
   downloadRemoteManifest,
+  ensureParentDir,
   ensureWorkspaceDirs,
   loadLocalManifest,
   readWorkspaceConfig,
@@ -32,10 +32,12 @@ export async function runInit(options: InitOptions): Promise<void> {
     cwd: options.cwd,
     repo: options.repo,
     noImages: options.noImages,
+    agents: options.agents.length > 0 ? options.agents : undefined,
   });
   console.log(`${bold("Initialized workspace:")} ${options.workspace}`);
   console.log(`${bold("CWD:")} ${options.cwd}`);
   console.log(`${bold("Repo:")} ${options.repo}`);
+  console.log(`${bold("Agents:")} ${options.agents.length > 0 ? options.agents.join(", ") : "all"}`);
   console.log(`${bold("Images:")} ${options.noImages ? "stripped" : "preserved"}`);
 }
 
@@ -44,14 +46,14 @@ export async function runCollect(options: CollectOptions): Promise<void> {
   ensureWorkspaceDirs(options.workspace);
 
   const config = readWorkspaceConfig(options.workspace);
+  const agents = options.agents.length > 0 ? options.agents : config.agents;
 
   const remoteManifestCachePath = workspacePath(options.workspace, REMOTE_MANIFEST_CACHE_FILE);
   const remoteManifest = await downloadRemoteManifest(config.repo, remoteManifestCachePath);
-  const sessionDir = findSessionDir(config.cwd);
-  let sessionFiles = fs.readdirSync(sessionDir).filter((file) => file.endsWith(".jsonl")).sort();
-  if (options.session) {
-    sessionFiles = sessionFiles.filter((file) => file.includes(options.session!));
-  }
+  const discoveredSessions = discoverOpenClawSessions(config.cwd, {
+    agents,
+    session: options.session,
+  });
   const redactor = new Redactor(options.envFile, options.secrets, !!config.noImages);
   const secretsHash = computeSecretHash(options.envFile, options.secrets);
   const localManifestPath = workspacePath(options.workspace, LOCAL_MANIFEST_FILE);
@@ -73,11 +75,12 @@ export async function runCollect(options: CollectOptions): Promise<void> {
   console.log(bold("Collect"));
   process.stdout.write(`  ${bold("Sessions found:")} 0`);
 
-  for (let index = 0; index < sessionFiles.length; index++) {
-    const file = sessionFiles[index];
+  for (let index = 0; index < discoveredSessions.length; index++) {
+    const session = discoveredSessions[index];
+    const file = session.workspaceFile;
     process.stdout.write(`\r  ${bold("Sessions found:")} ${index + 1}`);
 
-    const inputPath = path.join(sessionDir, file);
+    const inputPath = session.sourcePath;
     const sourceHash = await sha256File(inputPath);
     const redactionKey = createRedactionKey(sourceHash, secretsHash, !!config.noImages);
     const remoteEntry = remoteManifest.get(file);
@@ -220,6 +223,7 @@ export async function runCollect(options: CollectOptions): Promise<void> {
     parallel: options.parallel,
     denyPatterns: options.denyPatterns,
     session: options.session,
+    agents: options.agents,
   };
   await runReview(reviewOptions);
 }
@@ -228,21 +232,15 @@ function createRedactionKey(sourceHash: string, secretsHash: string, noImages: b
   return `v${REDACTION_VERSION}:${sourceHash}:${secretsHash}:${noImages ? "no-images" : "keep-images"}`;
 }
 
-function findSessionDir(cwd: string): string {
-  const sessionsBase = path.join(os.homedir(), ".pi", "agent", "sessions");
-  const dir = path.join(sessionsBase, cwdToSessionDirName(cwd));
-  if (!fs.existsSync(dir)) {
-    throw new Error(`Session directory not found for cwd: ${cwd}`);
-  }
-  return dir;
-}
-
 async function processSessionFile(
   inputPath: string,
   redactedPath: string,
   reportPath: string,
   redactor: Redactor,
 ): Promise<{ redactedHash: string; entryCount: number; findings: number; linesWithFindings: number; hasSecretRedactions: boolean }> {
+  ensureParentDir(redactedPath);
+  ensureParentDir(reportPath);
+
   const input = fs.createReadStream(inputPath, { encoding: "utf-8" });
   const reader = readline.createInterface({ input, crlfDelay: Infinity });
   const redactedStream = fs.createWriteStream(redactedPath, { encoding: "utf-8" });
@@ -340,4 +338,3 @@ function closeStream(stream: fs.WriteStream): Promise<void> {
     });
   });
 }
-

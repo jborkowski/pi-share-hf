@@ -20,14 +20,22 @@ export async function runReject(options: RejectOptions): Promise<void> {
 }
 
 function normalizeRejectTarget(target: string): string {
-  const base = path.basename(target);
+  const normalized = target.replace(/\\/g, "/");
 
+  if (normalized.endsWith(".jsonl")) return normalized;
+  if (normalized.endsWith(".review.json")) return normalized.slice(0, -".review.json".length);
+
+  const base = path.basename(normalized);
   if (base.endsWith(".jsonl")) return base;
-  if (base.endsWith(".review.json")) return base.slice(0, -".review.json".length);
 
   const marker = base.indexOf("_L");
   if (marker !== -1) {
-    return `${base.slice(0, marker)}.jsonl`;
+    const sessionBase = base.slice(0, marker);
+    if (normalized.includes("/")) {
+      const prefix = normalized.slice(0, normalized.lastIndexOf("/") + 1);
+      return `${prefix}${sessionBase}.jsonl`;
+    }
+    return `${sessionBase}.jsonl`;
   }
 
   throw new Error(`Cannot derive session filename from target: ${target}`);

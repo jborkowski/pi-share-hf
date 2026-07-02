@@ -3,7 +3,7 @@ import path from "node:path";
 import type { TruffleHogFinding, TruffleHogFindingStatus, TruffleHogReport, TruffleHogSummary } from "./types.ts";
 import { TRUFFLEHOG_REPORT_SUFFIX } from "./types.ts";
 import { runCommand } from "./process.ts";
-import { isRecord, sha256Text, workspacePath } from "./workspace.ts";
+import { isRecord, sha256Text, workspacePath, ensureParentDir } from "./workspace.ts";
 
 export function trufflehogReportPath(workspace: string, file: string): string {
   return workspacePath(workspace, "reports", `${file}${TRUFFLEHOG_REPORT_SUFFIX}`);
@@ -108,6 +108,7 @@ export async function scanFilesWithTruffleHog(
 }
 
 export function saveTruffleHogReport(filePath: string, report: TruffleHogReport): void {
+  ensureParentDir(filePath);
   fs.writeFileSync(filePath, `${JSON.stringify(report, null, 2)}\n`);
 }
 

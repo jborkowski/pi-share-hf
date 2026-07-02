@@ -1,19 +1,19 @@
-# pi-share-hf
+# openclaw-share-hf
 
-Publish [pi](https://pi.dev) coding agent sessions from one OSS project to a Hugging Face dataset.
+Publish [OpenClaw](https://docs.openclaw.ai) agent sessions from one OSS project to a Hugging Face dataset.
 
 It is an incremental pipeline for:
 
-1. collecting sessions for one project
+1. collecting OpenClaw transcript and trajectory sessions for one project cwd
 2. redacting exact secrets from your env file and `--secret`
 3. rejecting sessions that match user-provided deny patterns via `--deny`
 4. scanning redacted output with [TruffleHog](https://github.com/trufflesecurity/trufflehog) to detect and verify surviving secrets
-5. running LLM review on the remaining sessions
+5. running LLM review on the remaining sessions via the `pi` CLI
 6. uploading only sessions that pass all checks
 
 Use it if you want to:
 
-- publish a public dataset of your pi traces
+- publish a public dataset of your OpenClaw traces
 - share real agent traces for analysis or training data
 - keep project-specific sessions on Hugging Face over time without reprocessing everything on every run
 
@@ -21,13 +21,17 @@ It keeps state in a workspace, so repeated runs only process what changed (updat
 
 ## Supported input
 
-- [pi](https://pi.dev) coding agent session files
-- session format: https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/session.md
+- OpenClaw transcript sessions: `~/.openclaw/agents/<agentId>/sessions/*.jsonl`
+- OpenClaw trajectory sidecars: `~/.openclaw/agents/<agentId>/sessions/*.trajectory.jsonl`
+- session format: https://docs.openclaw.ai/reference/session-management-compaction
+- trajectory format: https://docs.openclaw.ai/tools/trajectory
+
+Sessions are filtered by the `cwd` field in transcript headers (or matching `workspaceDir` in trajectory files).
 
 ## Install
 
 ```bash
-npm install -g pi-share-hf
+npm install -g openclaw-share-hf
 npm install -g @mariozechner/pi-coding-agent
 ```
 
@@ -59,17 +63,17 @@ The CLI checks startup requirements and exits with install or auth instructions 
 
 Use one workspace per OSS project. In your OSS project directory:
 
-1. add `.pi/hf-sessions/` to `.gitignore`
-2. run `pi-share-hf init` once
-3. run `pi-share-hf collect` to gather changed and new sessions, redact known secrets, filter by `--deny`, scan with TruffleHog, and run LLM review
-4. inspect what would be uploaded with `pi-share-hf list --uploadable`, `pi-share-hf grep`, and the images folder if images are enabled
+1. add `.openclaw/hf-sessions/` to `.gitignore`
+2. run `openclaw-share-hf init` once
+3. run `openclaw-share-hf collect` to gather changed and new sessions, redact known secrets, filter by `--deny`, scan with TruffleHog, and run LLM review
+4. inspect what would be uploaded with `openclaw-share-hf list --uploadable`, `openclaw-share-hf grep`, and the images folder if images are enabled
 5. reject anything you do not want published
-6. run `pi-share-hf upload`
+6. run `openclaw-share-hf upload`
 7. repeat from step 3 whenever you want to publish new sessions
 
 The workspace is incremental. It keeps the collected state so repeated runs only process what changed.
 
-You can use pi-share-hf on multiple machines for the same project.
+You can use openclaw-share-hf on multiple machines for the same project.
 
 ## Quick start
 
@@ -77,25 +81,29 @@ Inside your OSS project:
 
 ```bash
 cd /path/to/my-project
-echo ".pi/hf-sessions/" >> .gitignore
+echo ".openclaw/hf-sessions/" >> .gitignore
 ```
 
 Initialize once:
 
 ```bash
 # personal namespace
-pi-share-hf init --repo myuser/my-project-sessions
+openclaw-share-hf init --repo myuser/my-project-sessions
 
 # or org namespace
-pi-share-hf init --repo my-project-sessions --organization myorg
+openclaw-share-hf init --repo my-project-sessions --organization myorg
+
+# limit to one agent
+openclaw-share-hf init --repo myuser/my-project-sessions --agent main
 ```
 
 Collect sessions:
 
 ```bash
-pi-share-hf collect \
+openclaw-share-hf collect \
   --secret secrets.txt \
   --deny deny.txt \
+  --agent main \
   --provider openai-codex --model gpt-5.4 --thinking medium \
   --parallel 4 \
   README.md AGENTS.md
@@ -111,32 +119,33 @@ You can also repeat flags directly:
 
 - `--secret <file>` or `--secret <literal>`
 - `--deny <file>` or `--deny <regex>`
+- `--agent <id>` to limit discovery to specific OpenClaw agents
 
 If you do not want a secrets file on disk, pass repeated `--secret <literal>` values instead.
 
 Check what would be uploaded:
 
 ```bash
-pi-share-hf list --uploadable
+openclaw-share-hf list --uploadable
 ```
 
 Search only the uploadable set:
 
 ```bash
-pi-share-hf grep -i 'my-private-project|counterparty-name|finance'
+openclaw-share-hf grep -i 'my-private-project|counterparty-name|finance'
 ```
 
 Reject anything you do not want published:
 
 ```bash
-pi-share-hf reject 2026-01-16T11-03-04-216Z_b8b30402-d134-4f0d-9e6e-e2f72ada5a2f.jsonl
+openclaw-share-hf reject main/2026-01-16T11-03-04-216Z_b8b30402-d134-4f0d-9e6e-e2f72ada5a2f.jsonl
 ```
 
 Upload:
 
 ```bash
-pi-share-hf upload --dry-run
-pi-share-hf upload
+openclaw-share-hf upload --dry-run
+openclaw-share-hf upload
 ```
 
 ## What deterministic redaction does
@@ -173,33 +182,7 @@ So you do not need to manually inspect TruffleHog hits to decide whether a sessi
 Per-session TruffleHog reports are stored in:
 
 ```text
-.pi/hf-sessions/reports/<session>.trufflehog.json
-```
-
-Example:
-
-```json
-{
-  "file": "...jsonl",
-  "redacted_hash": "sha256:...",
-  "findings": [
-    {
-      "detector": "NpmToken",
-      "status": "verified",
-      "line": 132,
-      "raw_sha256": "sha256:...",
-      "masked": "npm_tnl0***x4eE",
-      "verification_from_cache": false
-    }
-  ],
-  "summary": {
-    "findings": 1,
-    "verified": 1,
-    "unverified": 0,
-    "unknown": 0,
-    "top_detectors": ["NpmToken"]
-  }
-}
+.openclaw/hf-sessions/reports/<agent>/<session>.trufflehog.json
 ```
 
 ## What the LLM review does
@@ -223,7 +206,7 @@ Review output includes:
 Review files are stored in:
 
 ```text
-.pi/hf-sessions/review/<session>.review.json
+.openclaw/hf-sessions/review/<agent>/<session>.review.json
 ```
 
 Changing provider, model, or thinking level changes the review cache key. The key includes the redacted session hash, context file hashes, provider, model, thinking level, deny-pattern hash, prompt version, and chunk size. If you rerun review with different settings, existing review sidecars for those sessions are replaced.
@@ -241,47 +224,50 @@ Use `upload --dry-run` first if you want counts without pushing anything.
 Before uploading, inspect what is currently uploadable:
 
 ```bash
-pi-share-hf list --uploadable
+openclaw-share-hf list --uploadable
 ```
 
 Useful checks:
 
-- search the uploadable set with `pi-share-hf grep`
+- search the uploadable set with `openclaw-share-hf grep`
 - review `deny.txt` and rerun `collect` if you discover a new never-publish topic
-- inspect `.pi/hf-sessions/images/` when image preservation is enabled
-- inspect `.pi/hf-sessions/reports/*.trufflehog.json` only if you want to debug or audit why a session was blocked by TruffleHog
-- reject anything suspicious manually with `pi-share-hf reject`
+- inspect `.openclaw/hf-sessions/images/` when image preservation is enabled
+- inspect `.openclaw/hf-sessions/reports/**/*.trufflehog.json` only if you want to debug or audit why a session was blocked by TruffleHog
+- reject anything suspicious manually with `openclaw-share-hf reject`
 
 Typical grep checks:
 
 ```bash
-pi-share-hf grep -i 'private-project|counterparty|finance|agreement|royalt'
-pi-share-hf grep -i 'gmail|calendar|drive|slack'
+openclaw-share-hf grep -i 'private-project|counterparty|finance|agreement|royalt'
+openclaw-share-hf grep -i 'gmail|calendar|drive|slack'
 ```
 
 ## Commands
 
 ### `init`
 
-Creates `.pi/hf-sessions/`, writes `workspace.json`, and records which project directory maps to which Hugging Face dataset repo.
+Creates `.openclaw/hf-sessions/`, writes `workspace.json`, and records which project directory maps to which Hugging Face dataset repo.
 
 By default it uses:
 
 - current directory as `--cwd`
-- `.pi/hf-sessions` as `--workspace`
+- `.openclaw/hf-sessions` as `--workspace`
 - preserved embedded images
+- all OpenClaw agents when scanning sessions
 
 ```bash
-pi-share-hf init --repo user/dataset
-pi-share-hf init --repo dataset-name --organization myorg
+openclaw-share-hf init --repo user/dataset
+openclaw-share-hf init --repo dataset-name --organization myorg
+openclaw-share-hf init --repo user/dataset --agent main --agent ops
 ```
 
 Main options:
 
-- `--cwd <dir>` project directory to map to pi session storage
+- `--cwd <dir>` project directory whose OpenClaw sessions should be collected
 - `--repo <id>` HF dataset repo
 - `--organization <name>` optional namespace when `--repo` is a bare name
-- `--workspace <dir>` workspace dir, default `.pi/hf-sessions`
+- `--workspace <dir>` workspace dir, default `.openclaw/hf-sessions`
+- `--agent <id>` limit session discovery to specific OpenClaw agents (repeatable)
 - `--no-images` strip embedded images from redacted output
 
 ### `collect`
@@ -290,18 +276,19 @@ Collects sessions for the configured project, redacts literal secrets, runs Truf
 
 By default it uses:
 
-- `.pi/hf-sessions` as `--workspace`
+- `.openclaw/hf-sessions` as `--workspace`
 - `~/.zshrc` as `--env-file`
 - `README.md` and `AGENTS.md` as context files when present
+- agents from `workspace.json` unless overridden with `--agent`
 - current pi settings unless you override provider, model, or thinking
 
 ```bash
-pi-share-hf collect [context-files...]
+openclaw-share-hf collect [context-files...]
 ```
 
 Main options:
 
-- `--workspace <dir>` workspace, default `.pi/hf-sessions`
+- `--workspace <dir>` workspace, default `.openclaw/hf-sessions`
 - `--env-file <path>` secret source file, default `~/.zshrc`
 - `--secret <file>|<text>` repeatable
 - `--force` reprocess all sessions
@@ -310,6 +297,7 @@ Main options:
 - `--thinking <level>` review thinking override
 - `--parallel <n>` concurrent LLM reviews
 - `--deny <file>|<regex>` reject sessions matching this pattern
+- `--agent <id>` limit discovery to specific OpenClaw agents (repeatable)
 - `--session <file>` process one session only
 
 ### `review`
@@ -318,12 +306,12 @@ Reruns only the LLM review step on already-redacted sessions in the workspace.
 
 By default it uses:
 
-- `.pi/hf-sessions` as `--workspace`
+- `.openclaw/hf-sessions` as `--workspace`
 - `README.md` and `AGENTS.md` as context files when present
 - current pi settings unless you override provider, model, or thinking
 
 ```bash
-pi-share-hf review [context-files...]
+openclaw-share-hf review [context-files...]
 ```
 
 Uses the same review-related flags as `collect`.
@@ -332,10 +320,10 @@ Uses the same review-related flags as `collect`.
 
 Marks a session as never uploadable by adding it to `reject.txt`.
 
-By default it uses `.pi/hf-sessions` as `--workspace`.
+By default it uses `.openclaw/hf-sessions` as `--workspace`.
 
 ```bash
-pi-share-hf reject <session.jsonl|image.png>
+openclaw-share-hf reject <agent/session.jsonl|image.png>
 ```
 
 If you pass an extracted image path, the owning session is rejected.
@@ -344,31 +332,31 @@ If you pass an extracted image path, the owning session is rejected.
 
 Lists sessions from the workspace.
 
-By default it uses `.pi/hf-sessions` as `--workspace`.
+By default it uses `.openclaw/hf-sessions` as `--workspace`.
 
 ```bash
-pi-share-hf list --uploadable
+openclaw-share-hf list --uploadable
 ```
 
 ### `grep`
 
 Searches only the currently uploadable sessions.
 
-By default it uses `.pi/hf-sessions` as `--workspace`.
+By default it uses `.openclaw/hf-sessions` as `--workspace`.
 
 ```bash
-pi-share-hf grep -i 'finance|counterparty|private-project'
+openclaw-share-hf grep -i 'finance|counterparty|private-project'
 ```
 
 ### `upload`
 
 Uploads the current uploadable sessions and updates the remote dataset manifest.
 
-By default it uses `.pi/hf-sessions` as `--workspace`.
+By default it uses `.openclaw/hf-sessions` as `--workspace`.
 
 ```bash
-pi-share-hf upload --dry-run
-pi-share-hf upload
+openclaw-share-hf upload --dry-run
+openclaw-share-hf upload
 ```
 
 Uses the built-in TypeScript Hugging Face client. No `huggingface-cli` is needed.
@@ -376,12 +364,12 @@ Uses the built-in TypeScript Hugging Face client. No `huggingface-cli` is needed
 ## Workspace layout
 
 ```text
-.pi/hf-sessions/
+.openclaw/hf-sessions/
   workspace.json
   manifest.local.jsonl
   remote-manifest.jsonl
   manifest.jsonl
-  redacted/       public candidate files
+  redacted/       public candidate files (<agentId>/<session>.jsonl)
   reports/        private deterministic + TruffleHog reports
   review/         private LLM review sidecars
   review-chunks/  private transcript chunks
@@ -393,14 +381,22 @@ Uses the built-in TypeScript Hugging Face client. No `huggingface-cli` is needed
 
 ```text
 manifest.jsonl
-<session>.jsonl
+<agentId>/<session>.jsonl
+<agentId>/<session>.trajectory.jsonl
 ```
 
-Each uploaded `*.jsonl` file is a redacted pi session.
+Each uploaded `*.jsonl` file is a redacted OpenClaw transcript or trajectory session.
 
 Session format docs:
 
-- https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/session.md
+- https://docs.openclaw.ai/reference/session-management-compaction
+- https://docs.openclaw.ai/tools/trajectory
+
+## Limitations
+
+- Trajectory discovery supports default sidecars plus `*.trajectory-path.json` pointers; exotic custom layouts may need follow-up.
+- The `pi` CLI is required for LLM review even though sessions come from OpenClaw.
+- Existing pi-share-hf workspaces are not migrated; re-`init` under `.openclaw/hf-sessions`.
 
 ## Development
 

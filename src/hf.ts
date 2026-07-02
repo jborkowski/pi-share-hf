@@ -55,9 +55,9 @@ export async function downloadDatasetTextFile(repo: string, filePath: string): P
 }
 
 export async function uploadDatasetFolder(repo: string, localDir: string, commitTitle: string): Promise<void> {
-  const files = fs.readdirSync(localDir).map((name) => ({
-    path: name,
-    content: new Blob([fs.readFileSync(path.join(localDir, name))]),
+  const files = listFilesRecursive(localDir).map(({ relativePath, fullPath }) => ({
+    path: relativePath.replace(/\\/g, "/"),
+    content: new Blob([fs.readFileSync(fullPath)]),
   }));
   await uploadFiles({
     repo: datasetRepo(repo),
@@ -65,4 +65,21 @@ export async function uploadDatasetFolder(repo: string, localDir: string, commit
     files,
     commitTitle,
   });
+}
+
+function listFilesRecursive(dir: string, baseDir = dir): Array<{ relativePath: string; fullPath: string }> {
+  const results: Array<{ relativePath: string; fullPath: string }> = [];
+  for (const name of fs.readdirSync(dir)) {
+    const fullPath = path.join(dir, name);
+    const stat = fs.statSync(fullPath);
+    if (stat.isDirectory()) {
+      results.push(...listFilesRecursive(fullPath, baseDir));
+      continue;
+    }
+    results.push({
+      relativePath: path.relative(baseDir, fullPath),
+      fullPath,
+    });
+  }
+  return results;
 }
