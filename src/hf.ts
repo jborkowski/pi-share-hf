@@ -54,8 +54,40 @@ export async function downloadDatasetTextFile(repo: string, filePath: string): P
   }
 }
 
+export const UPLOAD_BATCH_SIZE = 50;
+
 export async function uploadDatasetFolder(repo: string, localDir: string, commitTitle: string): Promise<void> {
-  const files = listFilesRecursive(localDir).map(({ relativePath, fullPath }) => ({
+  const allFiles = listFilesRecursive(localDir);
+  if (allFiles.length === 0) return;
+
+  const metaNames = new Set(["manifest.jsonl", "README.md"]);
+  const dataFiles = allFiles.filter((file) => !metaNames.has(path.basename(file.relativePath)));
+  const metaFiles = allFiles.filter((file) => metaNames.has(path.basename(file.relativePath)));
+
+  const batchCount = Math.ceil(dataFiles.length / UPLOAD_BATCH_SIZE) + (metaFiles.length > 0 ? 1 : 0);
+  let batchIndex = 0;
+
+  for (let i = 0; i < dataFiles.length; i += UPLOAD_BATCH_SIZE) {
+    batchIndex++;
+    const batch = dataFiles.slice(i, i + UPLOAD_BATCH_SIZE);
+    const label = `${commitTitle} (${batchIndex}/${batchCount})`;
+    await uploadFileBatch(repo, batch, label);
+  }
+
+  if (metaFiles.length > 0) {
+    batchIndex++;
+    const label = `${commitTitle} (${batchIndex}/${batchCount})`;
+    await uploadFileBatch(repo, metaFiles, label);
+  }
+}
+
+async function uploadFileBatch(
+  repo: string,
+  batch: Array<{ relativePath: string; fullPath: string }>,
+  commitTitle: string,
+): Promise<void> {
+  process.stdout.write(`  ${commitTitle} (${batch.length} files)\n`);
+  const files = batch.map(({ relativePath, fullPath }) => ({
     path: relativePath.replace(/\\/g, "/"),
     content: new Blob([fs.readFileSync(fullPath)]),
   }));

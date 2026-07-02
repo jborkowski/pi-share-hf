@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { bold, cyan, dim, green, yellow } from "./colors.ts";
-import { uploadDatasetFolder } from "./hf.ts";
+import { uploadDatasetFolder, UPLOAD_BATCH_SIZE } from "./hf.ts";
 import type { ChunkReviewResult, UploadOptions } from "./types.ts";
 import { REJECT_FILE, REMOTE_MANIFEST_CACHE_FILE, REMOTE_MANIFEST_FILE } from "./types.ts";
 import { runCommand } from "./process.ts";
@@ -141,7 +141,7 @@ export async function runUpload(options: UploadOptions): Promise<void> {
   );
 
   console.log(`${bold("Staged for upload:")} ${cyan(String(staged))}`);
-  console.log(green("Uploading..."));
+  console.log(green(`Uploading in batches of ${UPLOAD_BATCH_SIZE} files...`));
 
   await uploadFolder(repo, uploadDir);
 
