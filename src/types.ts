@@ -13,6 +13,7 @@ export interface WorkspaceConfig {
   noImages?: boolean;
   agents?: string[];
   allSessions?: boolean;
+  private?: boolean;
 }
 
 export interface InitOptions {
@@ -22,6 +23,7 @@ export interface InitOptions {
   noImages: boolean;
   agents: string[];
   allSessions: boolean;
+  private: boolean;
 }
 
 export interface CollectOptions {
@@ -38,6 +40,7 @@ export interface CollectOptions {
   session?: string;
   agents: string[];
   allSessions: boolean;
+  private: boolean;
 }
 
 export interface ReviewOptions {
@@ -82,6 +85,7 @@ export interface TruffleHogReport {
 export interface UploadOptions {
   workspace: string;
   dryRun: boolean;
+  private: boolean;
 }
 
 export interface RejectOptions {

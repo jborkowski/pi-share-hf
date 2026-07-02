@@ -34,6 +34,7 @@ Init options:
   --workspace <dir>      Workspace directory (default: .openclaw/hf-sessions)
   --agent <id>           Limit collection to a specific OpenClaw agent (repeatable)
   --all-sessions         Collect all sessions regardless of project cwd
+  --private              Private backup mode: skip LLM review, upload without review approval
   --no-images            Strip embedded images from redacted output
 
 Collect options:
@@ -48,6 +49,7 @@ Collect options:
   --deny <file>|<regex>  Deny pattern: file with one regex per line, or a regex string (repeatable)
   --agent <id>           Limit collection to a specific OpenClaw agent (repeatable)
   --all-sessions         Collect all sessions regardless of project cwd
+  --private              Private backup mode: skip LLM review
   --session <file>       Process a single session file (for testing)
   [context-file...]      Project context files for the LLM review (default: README.md, AGENTS.md if present)
 
@@ -64,6 +66,7 @@ Review options:
 
 Upload options:
   --workspace <dir>      Existing workspace (default: .openclaw/hf-sessions)
+  --private              Upload redacted sessions without LLM review approval
   --dry-run              Show upload stats without uploading
 
 Reject options:
@@ -88,6 +91,7 @@ export function parseInitArgs(args: string[]): InitOptions {
   let workspace = path.resolve(DEFAULT_WORKSPACE);
   let noImages = false;
   let allSessions = false;
+  let privateMode = false;
   const agents: string[] = [];
 
   for (let i = 0; i < args.length; i++) {
@@ -98,6 +102,7 @@ export function parseInitArgs(args: string[]): InitOptions {
     else if (arg === "--workspace") workspace = path.resolve(requireValue(args, ++i, "--workspace"));
     else if (arg === "--agent") agents.push(requireValue(args, ++i, "--agent"));
     else if (arg === "--all-sessions") allSessions = true;
+    else if (arg === "--private") privateMode = true;
     else if (arg === "--no-images") noImages = true;
     else throw new Error(`Unknown init option: ${arg}`);
   }
@@ -111,7 +116,7 @@ export function parseInitArgs(args: string[]): InitOptions {
   }
 
   const repoId = organization ? `${organization}/${repo}` : repo;
-  return { cwd, repo: repoId, workspace, noImages, agents, allSessions };
+  return { cwd, repo: repoId, workspace, noImages, agents, allSessions, private: privateMode };
 }
 
 export function parseCollectArgs(args: string[]): CollectOptions {
@@ -128,6 +133,7 @@ export function parseCollectArgs(args: string[]): CollectOptions {
   const contextFiles: string[] = [];
   const agents: string[] = [];
   let allSessions = false;
+  let privateMode = false;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -142,6 +148,7 @@ export function parseCollectArgs(args: string[]): CollectOptions {
     else if (arg === "--deny") denyInputs.push(requireValue(args, ++i, "--deny"));
     else if (arg === "--agent") agents.push(requireValue(args, ++i, "--agent"));
     else if (arg === "--all-sessions") allSessions = true;
+    else if (arg === "--private") privateMode = true;
     else if (arg === "--session") session = requireValue(args, ++i, "--session");
     else contextFiles.push(arg);
   }
@@ -151,7 +158,7 @@ export function parseCollectArgs(args: string[]): CollectOptions {
   }
   if (parallel < 1 || !Number.isFinite(parallel)) parallel = 1;
 
-  return { workspace, envFile, secrets, force, contextFiles, provider, model, thinking, parallel, denyPatterns: loadDenyPatterns(denyInputs), session, agents, allSessions };
+  return { workspace, envFile, secrets, force, contextFiles, provider, model, thinking, parallel, denyPatterns: loadDenyPatterns(denyInputs), session, agents, allSessions, private: privateMode };
 }
 
 export function parseReviewArgs(args: string[]): ReviewOptions {
@@ -190,11 +197,13 @@ export function parseReviewArgs(args: string[]): ReviewOptions {
 export function parseUploadArgs(args: string[]): UploadOptions {
   let workspace = path.resolve(DEFAULT_WORKSPACE);
   let dryRun = false;
+  let privateMode = false;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === "--workspace") workspace = path.resolve(requireValue(args, ++i, "--workspace"));
     else if (arg === "--dry-run") dryRun = true;
+    else if (arg === "--private") privateMode = true;
     else throw new Error(`Unknown upload option: ${arg}`);
   }
 
@@ -202,7 +211,7 @@ export function parseUploadArgs(args: string[]): UploadOptions {
     throw new Error("upload requires --workspace");
   }
 
-  return { workspace, dryRun };
+  return { workspace, dryRun, private: privateMode };
 }
 
 export function parseRejectArgs(args: string[]): RejectOptions {

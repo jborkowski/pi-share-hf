@@ -67,7 +67,7 @@ export async function ensureStartupTools(command: string): Promise<void> {
     }
   }
 
-  if (command === "collect" || command === "review") {
+  if (command === "review") {
     if (!(await commandExists("pi"))) {
       missing.push([
         "Missing required command: pi",

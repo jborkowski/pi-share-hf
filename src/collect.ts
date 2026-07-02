@@ -34,12 +34,14 @@ export async function runInit(options: InitOptions): Promise<void> {
     noImages: options.noImages,
     agents: options.agents.length > 0 ? options.agents : undefined,
     allSessions: options.allSessions || undefined,
+    private: options.private || undefined,
   });
   console.log(`${bold("Initialized workspace:")} ${options.workspace}`);
   console.log(`${bold("CWD:")} ${options.cwd}`);
   console.log(`${bold("Repo:")} ${options.repo}`);
   console.log(`${bold("Agents:")} ${options.agents.length > 0 ? options.agents.join(", ") : "all"}`);
   console.log(`${bold("All sessions:")} ${options.allSessions ? "yes" : "no (cwd filter)"}`);
+  console.log(`${bold("Private:")} ${options.private ? "yes (skip LLM review on upload)" : "no (public publish pipeline)"}`);
   console.log(`${bold("Images:")} ${options.noImages ? "stripped" : "preserved"}`);
 }
 
@@ -229,6 +231,15 @@ export async function runCollect(options: CollectOptions): Promise<void> {
     session: options.session,
     agents: options.agents,
   };
+
+  const isPrivate = options.private || !!config.private;
+  if (isPrivate) {
+    console.log();
+    console.log(bold("Private mode"));
+    console.log(`  ${dim("Skipping LLM review. Upload with:")} openclaw-share-hf upload --private --workspace ${options.workspace}`);
+    return;
+  }
+
   await runReview(reviewOptions);
 }
 

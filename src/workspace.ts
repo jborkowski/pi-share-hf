@@ -51,6 +51,7 @@ export function isWorkspaceConfig(value: unknown): value is WorkspaceConfig {
   if (value.agents !== undefined && !Array.isArray(value.agents)) return false;
   if (Array.isArray(value.agents) && value.agents.some((agent) => typeof agent !== "string")) return false;
   if (value.allSessions !== undefined && typeof value.allSessions !== "boolean") return false;
+  if (value.private !== undefined && typeof value.private !== "boolean") return false;
   return true;
 }
 

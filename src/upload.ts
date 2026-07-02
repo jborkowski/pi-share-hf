@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { bold, cyan, green, red, yellow } from "./colors.ts";
+import { bold, cyan, dim, green, yellow } from "./colors.ts";
 import { uploadDatasetFolder } from "./hf.ts";
 import type { ChunkReviewResult, UploadOptions } from "./types.ts";
 import { REJECT_FILE, REMOTE_MANIFEST_CACHE_FILE, REMOTE_MANIFEST_FILE } from "./types.ts";
@@ -17,6 +17,7 @@ function loadRejectSet(workspace: string): Set<string> {
 export async function runUpload(options: UploadOptions): Promise<void> {
   const config = readWorkspaceConfig(options.workspace);
   const repo = config.repo;
+  const isPrivate = options.private || !!config.private;
 
   const localManifest = loadLocalManifest(workspacePath(options.workspace, "manifest.local.jsonl"));
   if (localManifest.size === 0) {
@@ -37,7 +38,6 @@ export async function runUpload(options: UploadOptions): Promise<void> {
   const remoteManifest = await downloadRemoteManifest(repo, remoteManifestPath);
 
   for (const entry of entries) {
-    const reviewFile = loadReviewFile(workspacePath(options.workspace, "review", `${entry.file}.review.json`));
     const localFile = workspacePath(options.workspace, "redacted", entry.file);
 
     if (rejectedByUser.has(entry.file)) {
@@ -49,13 +49,17 @@ export async function runUpload(options: UploadOptions): Promise<void> {
       missingLocal++;
       continue;
     }
-    if (!reviewFile) {
-      noReview++;
-      continue;
-    }
-    if (hasReviewErrors(reviewFile) || !isUploadApproved(reviewFile.aggregate)) {
-      rejected++;
-      continue;
+
+    if (!isPrivate) {
+      const reviewFile = loadReviewFile(workspacePath(options.workspace, "review", `${entry.file}.review.json`));
+      if (!reviewFile) {
+        noReview++;
+        continue;
+      }
+      if (hasReviewErrors(reviewFile) || !isUploadApproved(reviewFile.aggregate)) {
+        rejected++;
+        continue;
+      }
     }
 
     const remoteEntry = remoteManifest.get(entry.file);
@@ -68,15 +72,20 @@ export async function runUpload(options: UploadOptions): Promise<void> {
   }
 
   console.log(`${bold("Total sessions:")} ${cyan(String(entries.length))}`);
-  console.log(`${bold("Approved by review:")} ${green(String(approved))}`);
-  console.log(`${bold("Rejected by review:")} ${yellow(String(rejected))}`);
+  if (isPrivate) {
+    console.log(`${bold("Mode:")} ${dim("private (no LLM review required)")}`);
+    console.log(`${bold("Ready to upload:")} ${green(String(approved))}`);
+  } else {
+    console.log(`${bold("Approved by review:")} ${green(String(approved))}`);
+    console.log(`${bold("Rejected by review:")} ${yellow(String(rejected))}`);
+    console.log(`${bold("No review data:")} ${noReview > 0 ? String(noReview) : String(noReview)}`);
+  }
   console.log(`${bold("Rejected manually:")} ${yellow(String(rejectedManual))}`);
-  console.log(`${bold("No review data:")} ${noReview > 0 ? red(String(noReview)) : String(noReview)}`);
   console.log(`${bold("Already uploaded (unchanged):")} ${unchanged}`);
   console.log(`${bold("Missing local redacted file:")} ${missingLocal}`);
 
-  if (noReview > 0) {
-    console.log(`\n${red(`Refusing to upload: ${noReview} session(s) have no review data. Run review first.`)}`);
+  if (!isPrivate && noReview > 0) {
+    console.log(`\nRefusing to upload: ${noReview} session(s) have no review data. Run review first, or use --private.`);
     return;
   }
   if (options.dryRun) {
@@ -96,9 +105,12 @@ export async function runUpload(options: UploadOptions): Promise<void> {
   let staged = 0;
 
   for (const entry of entries) {
-    const reviewFile = loadReviewFile(workspacePath(options.workspace, "review", `${entry.file}.review.json`));
     if (rejectedByUser.has(entry.file)) continue;
-    if (!reviewFile || hasReviewErrors(reviewFile) || !isUploadApproved(reviewFile.aggregate)) continue;
+
+    if (!isPrivate) {
+      const reviewFile = loadReviewFile(workspacePath(options.workspace, "review", `${entry.file}.review.json`));
+      if (!reviewFile || hasReviewErrors(reviewFile) || !isUploadApproved(reviewFile.aggregate)) continue;
+    }
 
     const remoteEntry = remoteManifest.get(entry.file);
     if (remoteEntry?.redacted_hash === entry.redacted_hash) continue;
@@ -123,7 +135,10 @@ export async function runUpload(options: UploadOptions): Promise<void> {
     .map((entry) => JSON.stringify(entry))
     .join("\n");
   fs.writeFileSync(path.join(uploadDir, REMOTE_MANIFEST_FILE), manifestContents.length > 0 ? `${manifestContents}\n` : "");
-  fs.writeFileSync(path.join(uploadDir, "README.md"), await generateDatasetCard(config.cwd, repo, entries.length, approved, rejected + rejectedManual, unchanged));
+  fs.writeFileSync(
+    path.join(uploadDir, "README.md"),
+    await generateDatasetCard(config.cwd, repo, entries.length, approved, rejected + rejectedManual, unchanged, isPrivate),
+  );
 
   console.log(`${bold("Staged for upload:")} ${cyan(String(staged))}`);
   console.log(green("Uploading..."));
@@ -135,6 +150,9 @@ export async function runUpload(options: UploadOptions): Promise<void> {
 
   console.log(`${bold("Uploaded:")} ${green(String(staged))}`);
   console.log(`${bold("Updated remote manifest:")} ${REMOTE_MANIFEST_FILE}`);
+  if (isPrivate) {
+    console.log(dim("Ensure the Hugging Face dataset repo is set to private in repo settings."));
+  }
 }
 
 async function generateDatasetCard(
@@ -144,6 +162,7 @@ async function generateDatasetCard(
   approved: number,
   blocked: number,
   unchanged: number,
+  isPrivate: boolean,
 ): Promise<string> {
   const sourceRepo = await resolveGitOrigin(cwd);
   const lines = [
@@ -163,10 +182,24 @@ async function generateDatasetCard(
     "",
     `# Coding agent session traces for ${repo}`,
     "",
-    sourceRepo
-      ? `This dataset contains redacted OpenClaw agent session traces collected while working on ${sourceRepo}. The traces were exported with [openclaw-share-hf](https://www.npmjs.com/package/openclaw-share-hf) from local OpenClaw sessions and filtered to keep only sessions that passed deterministic redaction and LLM review.`
-      : `This dataset contains redacted OpenClaw agent session traces exported with [openclaw-share-hf](https://www.npmjs.com/package/openclaw-share-hf) from local OpenClaw sessions. The traces were filtered to keep only sessions that passed deterministic redaction and LLM review.`,
-    "",
+  ];
+
+  if (isPrivate) {
+    lines.push(
+      "Private backup of redacted OpenClaw agent session traces exported with [openclaw-share-hf](https://www.npmjs.com/package/openclaw-share-hf).",
+      "Uploaded in private mode without LLM public-share review.",
+      "",
+    );
+  } else {
+    lines.push(
+      sourceRepo
+        ? `This dataset contains redacted OpenClaw agent session traces collected while working on ${sourceRepo}. The traces were exported with [openclaw-share-hf](https://www.npmjs.com/package/openclaw-share-hf) from local OpenClaw sessions and filtered to keep only sessions that passed deterministic redaction and LLM review.`
+        : `This dataset contains redacted OpenClaw agent session traces exported with [openclaw-share-hf](https://www.npmjs.com/package/openclaw-share-hf) from local OpenClaw sessions. The traces were filtered to keep only sessions that passed deterministic redaction and LLM review.`,
+      "",
+    );
+  }
+
+  lines.push(
     "## Data description",
     "",
     "Each `*.jsonl` file is a redacted OpenClaw transcript session. Each `*.trajectory.jsonl` file is a redacted OpenClaw trajectory sidecar. Sessions are stored as JSON Lines files where each line is a structured entry. Transcript entries include session headers, user and assistant messages, tool results, compaction summaries, branch summaries, and custom extension data. Trajectory entries follow the `openclaw-trajectory` schema and capture runtime timeline events.",
@@ -180,7 +213,9 @@ async function generateDatasetCard(
     "",
     "## Redaction and review",
     "",
-    "The data was processed with [openclaw-share-hf](https://www.npmjs.com/package/openclaw-share-hf) using deterministic secret redaction plus an LLM review step. Deterministic redaction targets exact known secrets and curated credential patterns. The LLM review decides whether a session is about the OSS project, whether it is fit to share publicly, and whether any sensitive content appears to have been missed.",
+    isPrivate
+      ? "The data was processed with [openclaw-share-hf](https://www.npmjs.com/package/openclaw-share-hf) using deterministic secret redaction. Private mode skips LLM public-share review."
+      : "The data was processed with [openclaw-share-hf](https://www.npmjs.com/package/openclaw-share-hf) using deterministic secret redaction plus an LLM review step. Deterministic redaction targets exact known secrets and curated credential patterns. The LLM review decides whether a session is about the OSS project, whether it is fit to share publicly, and whether any sensitive content appears to have been missed.",
     "",
     "Embedded images may be preserved in the uploaded sessions unless the workspace was initialized with `--no-images`.",
     "",
@@ -188,7 +223,7 @@ async function generateDatasetCard(
     "",
     "This dataset is best-effort redacted. Coding agent transcripts can still contain sensitive or off-topic content, especially if a session mixed OSS work with unrelated private tasks. Use with appropriate caution.",
     "",
-  ];
+  );
   return `${lines.join("\n")}\n`;
 }
 

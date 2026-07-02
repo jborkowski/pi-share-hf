@@ -28,6 +28,24 @@ It keeps state in a workspace, so repeated runs only process what changed (updat
 
 Sessions are filtered by the `cwd` field in transcript headers (or matching `workspaceDir` in trajectory files), unless you pass `--all-sessions`.
 
+## Private backup mode
+
+For personal conversation backups (not public publishing), use `--private`:
+
+```bash
+openclaw-share-hf init \
+  --repo j14i/oc-session \
+  --all-sessions \
+  --private \
+  --workspace ~/.openclaw/hf-sessions
+
+openclaw-share-hf collect --workspace ~/.openclaw/hf-sessions
+
+openclaw-share-hf upload --private --workspace ~/.openclaw/hf-sessions
+```
+
+Private mode skips LLM review on collect and uploads all redacted sessions (except `reject.txt` entries) without review approval. Set the Hugging Face dataset repo to **private** in [HF repo settings](https://huggingface.co/settings/repositories).
+
 ## Install
 
 ```bash
